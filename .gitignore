@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg
+*.egg-info/
+
+# Build artifacts
+dist/
+build/
+
+# Testing / coverage
+.coverage
+.coverage.*
+.cov_subproc_rc
+.cov_subproc_test
+coverage.xml
+htmlcov/
+.tox
+nosetests.xml
+.cache
+.pytest*
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor / OS
+*.swp
+*.swo
+.DS_Store
+nohup.out
+
+# AI assistants
+.agents/
+.claude/
+
+# Windows-unacceptable file names
+\\*

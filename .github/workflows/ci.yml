@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pre-commit
+      - run: pre-commit run --all-files --show-diff-on-failure
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.8", "3.13"]
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[test]"
+          pip install pytest-timeout pytest-xdist
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --timeout=60
+
+      - name: Coverage
+        if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'
+        run: |
+          pip install coverage
+          COVERAGE_PROCESS_START=pyproject.toml \
+            coverage run -m pytest tests/ --timeout=60 -x
+          coverage combine
+          coverage report --include="src/pytest_subproc/*" --show-missing
+          coverage xml --include="src/pytest_subproc/*"
+
+      # - name: Upload coverage
+      #   if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'
+      #   uses: codecov/codecov-action@v6
+      #   with:
+      #     files: coverage.xml
+      #     fail_ci_if_error: false

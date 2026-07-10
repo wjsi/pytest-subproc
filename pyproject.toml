@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pytest-subproc"
+dynamic = ["version"]
+description = "A pytest plugin to run marked tests in a subprocess"
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = ["pytest>=7.0.0"]
+
+[tool.setuptools_scm]
+
+[project.entry-points.pytest11]
+pytest_subproc = "pytest_subproc"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+include = ["src/pytest_subproc/*"]
+data_file = ".coverage"
+branch = true
+parallel = true
+cover_pylib = false
+concurrency = ["multiprocessing", "thread"]
+relative_files = true
+
+[tool.coverage.paths]
+source = ["src"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+
+[project.optional-dependencies]
+test = [
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
+    "flaky>=3.8",
+    "pytest-timeout>=1.4",
+]
