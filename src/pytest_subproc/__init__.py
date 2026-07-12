@@ -301,19 +301,25 @@ def _resolve_timeout(item):
         candidates.sort(key=lambda x: x[1])
         return candidates[0][1]
 
-    cli = item.config.getoption("subproc_default_timeout", default=None)
-    if cli is not None and cli != "":
+    def resolve_cfg_timeout(v):
+        if isinstance(v, list) and len(v) > 0:
+            v = v[0]
+        if v is None or v == "":
+            return
         try:
-            return float(cli)
-        except ValueError:
+            return float(v)
+        except (ValueError, TypeError):
             pass
 
-    ini = item.config.getini("subproc_default_timeout")
-    if ini is not None and ini != "":
-        try:
-            return float(ini)
-        except ValueError:
-            pass
+    cli = resolve_cfg_timeout(
+        item.config.getoption("subproc_default_timeout", default=None)
+    )
+    if cli is not None:
+        return cli
+
+    ini = resolve_cfg_timeout(item.config.getini("subproc_default_timeout"))
+    if ini is not None:
+        return ini
 
     if _config_default_timeout is not None:
         return _config_default_timeout
