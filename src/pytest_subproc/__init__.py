@@ -103,12 +103,13 @@ def pytest_runtest_protocol(item, nextitem):
     if not _should_spawn(item):
         return None
 
+    item.ihook.pytest_runtest_logstart(
+        nodeid=item.nodeid,
+        location=item.location,
+    )
+
     reason = _check_skip(item)
     if reason is not None:
-        item.ihook.pytest_runtest_logstart(
-            nodeid=item.nodeid,
-            location=item.location,
-        )
         call = pytest.CallInfo.from_call(
             lambda: pytest.skip(reason),
             when="setup",
@@ -116,6 +117,7 @@ def pytest_runtest_protocol(item, nextitem):
         )
         rep = item.ihook.pytest_runtest_makereport(item=item, call=call)
         item.ihook.pytest_runtest_logreport(report=rep)
+        item.ihook.pytest_runtest_teardown(item=item, nextitem=nextitem)
         item.ihook.pytest_runtest_logfinish(
             nodeid=item.nodeid,
             location=item.location,
@@ -124,17 +126,9 @@ def pytest_runtest_protocol(item, nextitem):
 
     timeout = _resolve_timeout(item)
 
-    # Cancel pytest-timeout's timeout so its timer does not kill the
-    # parent while we wait for the subprocess.
-    if sys.platform == "win32":
-        _cancel_pytest_timeout(item)
-
-    item.ihook.pytest_runtest_logstart(
-        nodeid=item.nodeid,
-        location=item.location,
-    )
-
     try:
+        item.ihook.pytest_runtest_setup(item=item)
+        _cancel_pytest_timeout(item)
         result = run_subprocess_test(item, item.nodeid, timeout)
     except TimeoutError as exc:
         msg = str(exc)
@@ -145,16 +139,13 @@ def pytest_runtest_protocol(item, nextitem):
         )
         rep = item.ihook.pytest_runtest_makereport(item=item, call=call)
         item.ihook.pytest_runtest_logreport(report=rep)
+        item.ihook.pytest_runtest_teardown(item=item, nextitem=nextitem)
         item.ihook.pytest_runtest_logfinish(
             nodeid=item.nodeid,
             location=item.location,
         )
         return True
     except (pytest.fail.Exception, KeyboardInterrupt) as exc:
-        item.ihook.pytest_runtest_logfinish(
-            nodeid=item.nodeid,
-            location=item.location,
-        )
         msg = str(exc)
         call = pytest.CallInfo.from_call(
             lambda: pytest.fail(msg),
@@ -163,8 +154,14 @@ def pytest_runtest_protocol(item, nextitem):
         )
         rep = item.ihook.pytest_runtest_makereport(item=item, call=call)
         item.ihook.pytest_runtest_logreport(report=rep)
+        item.ihook.pytest_runtest_teardown(item=item, nextitem=nextitem)
+        item.ihook.pytest_runtest_logfinish(
+            nodeid=item.nodeid,
+            location=item.location,
+        )
         return True
     except BaseException:
+        item.ihook.pytest_runtest_teardown(item=item, nextitem=nextitem)
         item.ihook.pytest_runtest_logfinish(
             nodeid=item.nodeid,
             location=item.location,
@@ -219,6 +216,7 @@ def pytest_runtest_protocol(item, nextitem):
 
     rep = item.ihook.pytest_runtest_makereport(item=item, call=call)
     item.ihook.pytest_runtest_logreport(report=rep)
+    item.ihook.pytest_runtest_teardown(item=item, nextitem=nextitem)
     item.ihook.pytest_runtest_logfinish(
         nodeid=item.nodeid,
         location=item.location,

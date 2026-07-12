@@ -973,6 +973,47 @@ def test_flaky_retry_works(pytester):
     result.assert_outcomes(passed=1)
 
 
+@pytest.mark.skipif(not _HAVE_FLAKY, reason="pytest-flaky not installed")
+def test_flaky_multiple_subproc_tests(pytester):
+    pytester.makepyfile(
+        """
+        import pytest
+        from flaky import flaky
+
+        @flaky(max_runs=2, min_passes=1)
+        @pytest.mark.subproc
+        def test_pass():
+            assert True
+
+        @flaky(max_runs=2, min_passes=1)
+        @pytest.mark.subproc
+        def test_fail():
+            assert False
+
+        @flaky(max_runs=2, min_passes=1)
+        @pytest.mark.subproc
+        def test_also_pass():
+            assert True
+        """,
+        test_other="""
+        import pytest
+        from flaky import flaky
+
+        @flaky(max_runs=2, min_passes=1)
+        @pytest.mark.subproc
+        def test_other_pass():
+            assert True
+
+        @flaky(max_runs=2, min_passes=1)
+        @pytest.mark.subproc
+        def test_other_fail():
+            assert False
+        """,
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=3, failed=2)
+
+
 # ---------------------------------------------------------------------------
 # pytest-timeout compatibility
 # ---------------------------------------------------------------------------
