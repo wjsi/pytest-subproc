@@ -1014,6 +1014,82 @@ def test_flaky_multiple_subproc_tests(pytester):
     result.assert_outcomes(passed=3, failed=2)
 
 
+@pytest.mark.skipif(not _HAVE_FLAKY, reason="pytest-flaky not installed")
+def test_flaky_retries_subproc_failure_then_passes(pytester, tmp_path):
+    """flaky must actually retry a subproc test that fails then passes.
+
+    A pure always-pass/always-fail suite cannot distinguish "flaky retried"
+    from "flaky was bypassed", so this test uses a counter that persists
+    across flaky reruns and fails (assertion) on the first attempt.
+    """
+    counter = tmp_path / "runs.txt"
+
+    pytester.makepyfile(
+        """
+        import os
+        import pytest
+        from flaky import flaky
+
+        _COUNTER = %r
+
+        @flaky(max_runs=3, min_passes=1)
+        @pytest.mark.subproc
+        def test_fail_then_pass():
+            runs = 0
+            if os.path.exists(_COUNTER):
+                with open(_COUNTER) as f:
+                    runs = int(f.read().strip() or "0")
+            runs += 1
+            with open(_COUNTER, "w") as f:
+                f.write(str(runs))
+            assert runs >= 2, "first-run failure (expected to be retried)"
+        """
+        % str(counter)
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+    assert counter.read_text() == "2"
+
+
+@pytest.mark.skipif(not _HAVE_FLAKY, reason="pytest-flaky not installed")
+def test_flaky_retries_subproc_crash_then_passes(pytester, tmp_path):
+    """flaky must retry a subproc test that hard-crashes then passes.
+
+    A subprocess crash (os._exit) produces no result file, which subproc
+    converts into a normal failure; flaky must then rerun it in a fresh
+    subprocess until it succeeds.
+    """
+    counter = tmp_path / "runs.txt"
+
+    pytester.makepyfile(
+        """
+        import os
+        import pytest
+        from flaky import flaky
+
+        _COUNTER = %r
+
+        @flaky(max_runs=3, min_passes=1)
+        @pytest.mark.subproc
+        def test_crash_then_pass():
+            runs = 0
+            if os.path.exists(_COUNTER):
+                with open(_COUNTER) as f:
+                    runs = int(f.read().strip() or "0")
+            runs += 1
+            with open(_COUNTER, "w") as f:
+                f.write(str(runs))
+            if runs < 2:
+                os._exit(1)
+            assert True
+        """
+        % str(counter)
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+    assert counter.read_text() == "2"
+
+
 # ---------------------------------------------------------------------------
 # pytest-timeout compatibility
 # ---------------------------------------------------------------------------

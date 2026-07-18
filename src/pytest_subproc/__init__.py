@@ -37,158 +37,34 @@ def _forward_ini_overrides(config):
     return overrides
 
 
-def _check_skip(item):
-    for marker in item.iter_markers(name="skip"):
-        condition = marker.kwargs.get("condition", True)
-        if callable(condition):
-            if not condition():
-                continue
-        elif not condition:
-            continue
-        reason = marker.kwargs.get(
-            "reason",
-            marker.args[0] if marker.args else "",
-        )
-        return reason
-    for marker in item.iter_markers(name="skipif"):
-        args = marker.args
-        if not args:
-            continue
-        condition = args[0]
-        if callable(condition):
-            if not condition():
-                continue
-        elif not condition:
-            continue
-        return marker.kwargs.get("reason", "")
-    return None
-
-
-def _get_xfail_info(item):
-    for marker in item.iter_markers(name="xfail"):
-        run = marker.kwargs.get("run", True)
-        strict = marker.kwargs.get("strict")
-        if strict is None:
-            strict = item.config.getini("xfail_strict")
-        if strict is None:
-            strict = item.config.getini("strict")
-        raises = marker.kwargs.get("raises", None)
-        if "condition" not in marker.kwargs:
-            conditions = marker.args
-        else:
-            conditions = (marker.kwargs["condition"],)
-        if not conditions:
-            reason = marker.kwargs.get("reason", "")
-            return {
-                "reason": reason,
-                "strict": strict,
-                "raises": raises,
-                "run": run,
-            }
-        for condition in conditions:
-            result = condition() if callable(condition) else condition
-            if result:
-                reason = marker.kwargs.get("reason", "")
-                return {
-                    "reason": reason,
-                    "strict": strict,
-                    "raises": raises,
-                    "run": run,
-                }
-    return None
-
-
 @pytest.hookimpl(tryfirst=True)
-def pytest_runtest_protocol(item, nextitem):
-    if not _should_spawn(item):
+def pytest_pyfunc_call(pyfuncitem):
+    """Run marked tests in a subprocess instead of in-process.
+
+    Hooking the call phase (rather than owning ``pytest_runtest_protocol``)
+    lets the default runtest protocol -- and wrappers such as ``flaky`` --
+    drive setup, teardown and retries.  Returning a non-None value stops the
+    default ``pytest_pyfunc_call`` (a ``firstresult`` hook) from executing
+    the test body in the parent process.
+    """
+    if not _should_spawn(pyfuncitem):
         return None
 
-    item.ihook.pytest_runtest_logstart(
-        nodeid=item.nodeid,
-        location=item.location,
-    )
-
-    reason = _check_skip(item)
-    if reason is not None:
-        call = pytest.CallInfo.from_call(
-            lambda: pytest.skip(reason),
-            when="setup",
-            reraise=None,
-        )
-        rep = item.ihook.pytest_runtest_makereport(item=item, call=call)
-        item.ihook.pytest_runtest_logreport(report=rep)
-        item.ihook.pytest_runtest_teardown(item=item, nextitem=nextitem)
-        item.ihook.pytest_runtest_logfinish(
-            nodeid=item.nodeid,
-            location=item.location,
-        )
-        return True
-
-    timeout = _resolve_timeout(item)
+    _cancel_pytest_timeout(pyfuncitem)
+    timeout = _resolve_timeout(pyfuncitem)
 
     try:
-        item.ihook.pytest_runtest_setup(item=item)
-        _cancel_pytest_timeout(item)
-        result = run_subprocess_test(item, item.nodeid, timeout)
+        result = run_subprocess_test(pyfuncitem, pyfuncitem.nodeid, timeout)
     except TimeoutError as exc:
-        msg = str(exc)
-        call = pytest.CallInfo.from_call(
-            lambda: pytest.fail(msg),
-            when="call",
-            reraise=None,
-        )
-        rep = item.ihook.pytest_runtest_makereport(item=item, call=call)
-        item.ihook.pytest_runtest_logreport(report=rep)
-        item.ihook.pytest_runtest_teardown(item=item, nextitem=nextitem)
-        item.ihook.pytest_runtest_logfinish(
-            nodeid=item.nodeid,
-            location=item.location,
-        )
-        return True
-    except (pytest.fail.Exception, KeyboardInterrupt) as exc:
-        msg = str(exc)
-        call = pytest.CallInfo.from_call(
-            lambda: pytest.fail(msg),
-            when="call",
-            reraise=None,
-        )
-        rep = item.ihook.pytest_runtest_makereport(item=item, call=call)
-        item.ihook.pytest_runtest_logreport(report=rep)
-        item.ihook.pytest_runtest_teardown(item=item, nextitem=nextitem)
-        item.ihook.pytest_runtest_logfinish(
-            nodeid=item.nodeid,
-            location=item.location,
-        )
-        return True
-    except BaseException:
-        item.ihook.pytest_runtest_teardown(item=item, nextitem=nextitem)
-        item.ihook.pytest_runtest_logfinish(
-            nodeid=item.nodeid,
-            location=item.location,
-        )
-        raise
+        pytest.fail(str(exc))
 
     stdout = result.get("_stdout", "")
     stderr = result.get("_stderr", "")
 
     if result.get("passed"):
-        call = pytest.CallInfo.from_call(
-            lambda: None,
-            when="call",
-            reraise=None,
-        )
-    elif result.get("xfailed"):
-        exc = result["exception"]
+        return True
 
-        def _raise_xfail():
-            raise exc
-
-        call = pytest.CallInfo.from_call(
-            _raise_xfail,
-            when="call",
-            reraise=None,
-        )
-    elif "exception" in result:
+    if "exception" in result:
         exc = result["exception"]
         msg = _build_exception_message(exc, stdout, stderr)
         if msg != str(exc):
@@ -196,57 +72,11 @@ def pytest_runtest_protocol(item, nextitem):
                 exc.args = (msg, *exc.args[1:])
             except Exception:
                 pass
+        raise exc
 
-        def _raise():
-            raise exc
-
-        call = pytest.CallInfo.from_call(_raise, when="call", reraise=None)
-    else:
-        msg = result.get("message", "Test failed in subprocess")
-        msg = _build_exception_message(Exception(msg), stdout, stderr)
-
-        def _fail():
-            pytest.fail(msg)
-
-        call = pytest.CallInfo.from_call(
-            _fail,
-            when="call",
-            reraise=None,
-        )
-
-    rep = item.ihook.pytest_runtest_makereport(item=item, call=call)
-    item.ihook.pytest_runtest_logreport(report=rep)
-    item.ihook.pytest_runtest_teardown(item=item, nextitem=nextitem)
-    item.ihook.pytest_runtest_logfinish(
-        nodeid=item.nodeid,
-        location=item.location,
-    )
-    return True
-
-
-@pytest.hookimpl(tryfirst=True, hookwrapper=True)
-def pytest_runtest_makereport(item, call):
-    outcome = yield
-    if call.when != "call":
-        return
-    rep = outcome.get_result()
-    if getattr(rep, "wasxfail", None) is not None:
-        return
-    xfail_info = _get_xfail_info(item)
-    if xfail_info is None or not xfail_info.get("run", True):
-        return
-    if call.excinfo:
-        raises = xfail_info["raises"]
-        if raises is None or isinstance(call.excinfo.value, raises):
-            rep.outcome = "skipped"
-            rep.wasxfail = xfail_info["reason"]
-    elif not rep.skipped:
-        if xfail_info["strict"]:
-            rep.outcome = "failed"
-            rep.longrepr = "[XPASS(strict)] " + xfail_info["reason"]
-        else:
-            rep.outcome = "passed"
-            rep.wasxfail = xfail_info["reason"]
+    base = result.get("message", "Test failed in subprocess")
+    msg = _build_exception_message(Exception(base), stdout, stderr)
+    pytest.fail(msg)
 
 
 def _get_pytest_timeout_marker(item):

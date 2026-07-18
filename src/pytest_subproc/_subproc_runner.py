@@ -4,6 +4,7 @@ Receives the test nodeid, result path, and rootdir from the parent
 process, runs pytest.main() for that single test, captures the
 outcome, and writes a pickled result to the temp file.
 """
+import faulthandler
 import json
 import pickle
 import sys
@@ -57,6 +58,8 @@ def main():
     result_path = sys.argv[2]
     rootdir = sys.argv[3]
     ini_overrides = json.loads(sys.argv[4]) if len(sys.argv) > 4 else {}
+
+    faulthandler.enable(all_threads=True)
 
     plugin = _SubprocResultPlugin()
 
