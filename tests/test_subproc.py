@@ -297,6 +297,125 @@ def test_stdout_not_shown_on_pass(pytester):
 
 
 # ---------------------------------------------------------------------------
+# Warning capture from subprocesses
+# ---------------------------------------------------------------------------
+
+
+def test_warning_passed_to_parent(pytester):
+    pytester.makepyfile(
+        """
+        import pytest
+        import warnings
+
+        @pytest.mark.subproc
+        def test_warns():
+            warnings.warn("hello subproc warning")
+            assert True
+        """
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+    assert "hello subproc warning" in result.stdout.str()
+
+
+def test_warning_category_preserved(pytester):
+    pytester.makepyfile(
+        """
+        import pytest
+        import warnings
+
+        class CustomWarning(Warning):
+            pass
+
+        @pytest.mark.subproc
+        def test_custom_warning():
+            warnings.warn("custom msg", CustomWarning)
+            assert True
+        """
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+    out = result.stdout.str()
+    assert "CustomWarning: custom msg" in out
+
+
+def test_warning_location_preserved(pytester):
+    pytester.makepyfile(
+        """
+        import pytest
+        import warnings
+
+        @pytest.mark.subproc
+        def test_warns_at_line():
+            warnings.warn("located warning")
+            assert True
+        """
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+    assert ":6: UserWarning: located warning" in result.stdout.str()
+
+
+def test_warning_on_failed_test(pytester):
+    pytester.makepyfile(
+        """
+        import pytest
+        import warnings
+
+        @pytest.mark.subproc
+        def test_warns_and_fails():
+            warnings.warn("warn before fail")
+            assert False
+        """
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(failed=1)
+    assert "warn before fail" in result.stdout.str()
+
+
+def test_multiple_warnings(pytester):
+    pytester.makepyfile(
+        """
+        import pytest
+        import warnings
+
+        @pytest.mark.subproc
+        def test_many_warnings():
+            warnings.warn("first")
+            warnings.warn("second")
+            warnings.warn("third")
+            assert True
+        """
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+    out = result.stdout.str()
+    assert "first" in out
+    assert "second" in out
+    assert "third" in out
+
+
+def test_unpicklable_warning_ignored(pytester):
+    """A warning whose category cannot be pickled must not break the test."""
+    pytester.makepyfile(
+        """
+        import pytest
+        import warnings
+
+        @pytest.mark.subproc
+        def test_local_warning():
+            class LocalWarning(Warning):
+                pass
+
+            warnings.warn("local msg", LocalWarning)
+            assert True
+        """
+    )
+    result = pytester.runpytest("-v")
+    result.assert_outcomes(passed=1)
+
+
+# ---------------------------------------------------------------------------
 # Fixtures (defined in the same file)
 # ---------------------------------------------------------------------------
 

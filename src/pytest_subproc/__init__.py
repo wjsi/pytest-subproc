@@ -58,6 +58,8 @@ def pytest_pyfunc_call(pyfuncitem):
     except TimeoutError as exc:
         pytest.fail(str(exc))
 
+    _emit_warnings(result.get("warnings_blob"))
+
     stdout = result.get("_stdout", "")
     stderr = result.get("_stderr", "")
 
@@ -77,6 +79,32 @@ def pytest_pyfunc_call(pyfuncitem):
     base = result.get("message", "Test failed in subprocess")
     msg = _build_exception_message(Exception(base), stdout, stderr)
     pytest.fail(msg)
+
+
+def _emit_warnings(warnings_blob):
+    """Re-emit warnings captured in the subprocess so pytest records them.
+
+    Warnings are re-emitted with their original location so pytest's warning
+    reporting shows the real source line.  Serialization errors are ignored:
+    an unpicklable warning simply does not reach the parent.
+    """
+    if not warnings_blob:
+        return
+    try:
+        records = pickle.loads(warnings_blob)
+    except Exception:
+        return
+    for message, category, filename, lineno in records:
+        try:
+            warnings.warn_explicit(
+                message,
+                category,
+                filename,
+                lineno,
+                registry={},
+            )
+        except Exception:
+            pass
 
 
 def _get_pytest_timeout_marker(item):

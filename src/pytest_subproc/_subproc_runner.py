@@ -8,6 +8,7 @@ import faulthandler
 import json
 import pickle
 import sys
+import warnings
 
 import pytest
 
@@ -36,6 +37,13 @@ class _SubprocResultPlugin:
         self.xfailed = False
         self.xpassed = False
         self.skipped = False
+        self.warning_records = []
+
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_runtest_call(self, item):
+        with warnings.catch_warnings(record=True) as log:
+            yield
+            self.warning_records = list(log)
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_makereport(self, item, call):
@@ -100,7 +108,32 @@ def main():
     else:
         result["passed"] = True
 
+    result["warnings_blob"] = _serialize_warnings(plugin.warning_records)
+
     _write_result(result_path, result)
+
+
+def _serialize_warnings(records):
+    """Pickle captured warnings into a self-contained blob.
+
+    Each record is validated individually so a single unpicklable warning
+    (e.g. a locally-defined category) is dropped instead of breaking the
+    whole result.  Returns None when there is nothing to pass back.
+    """
+    serialized = []
+    for w in records:
+        record = (str(w.message), w.category, w.filename, w.lineno)
+        try:
+            pickle.dumps(record)
+        except Exception:
+            continue
+        serialized.append(record)
+    if not serialized:
+        return None
+    try:
+        return pickle.dumps(serialized)
+    except Exception:
+        return None
 
 
 def _write_result(path, result):
@@ -113,8 +146,14 @@ def _write_result(path, result):
             result["message"] = str(exc)
             result["failed"] = True
             del result["exception"]
+    try:
+        data = pickle.dumps(result)
+    except Exception:
+        # Unpicklable warnings must not break the test outcome.
+        result.pop("warnings_blob", None)
+        data = pickle.dumps(result)
     with open(path, "wb") as f:
-        pickle.dump(result, f)
+        f.write(data)
 
 
 if __name__ == "__main__":

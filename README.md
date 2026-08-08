@@ -102,9 +102,13 @@ def test_obey_the_shorter():
    so the **entire process group** (including test‑spawned children) is
    killed when the timeout fires.
 
-4. **Result** — A plugin inside the subprocess captures the outcome and
-   exception; these are pickled to a temp file.  The parent re‑raises
-   the exception so `xfail`, `skip`, etc. work as expected.
+4. **Result** — A plugin inside the subprocess captures the outcome,
+   exception, and any warnings raised during the test; these are pickled
+   to a temp file.  The parent re‑raises the exception so `xfail`, `skip`,
+   etc. work as expected, and re‑emits the warnings (with their original
+   category and `file:line` location) so pytest records them in the
+   warnings summary.  Warnings that cannot be pickled are silently dropped
+   and never break the test.
 
 5. **Config parity** — `asyncio_mode`, `xfail_strict` and other ini
    settings are forwarded to the subprocess via `--override-ini`.
@@ -129,6 +133,7 @@ def test_obey_the_shorter():
 | Python >= 3.7 | ✅ |
 | Function, session, and module-level fixtures | ✅ |
 | stdout/stderr captured and shown on failure | ✅ |
+| Warnings captured and shown in the warnings summary | ✅ |
 | `pytest.mark.asyncio` + `asyncio_mode = "auto"` | ✅ |
 | `@pytest.mark.parametrize` | ✅ |
 | `@pytest.mark.xfail(raises=...)` | ✅ |
